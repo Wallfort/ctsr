@@ -26,6 +26,20 @@ export const impiantiService = {
     return data || [];
   },
 
+  async getById(id: string): Promise<Impianto> {
+    const { data, error } = await supabase
+      .from('impianti')
+      .select('*')
+      .eq('id', id)
+      .single();
+    
+    if (error) {
+      console.error('Errore nel recupero dell\'impianto:', error);
+      throw new Error(`Errore nel recupero dell'impianto: ${error.message}`);
+    }
+    return data;
+  },
+
   async create(impianto: Omit<Impianto, 'id' | 'created_at' | 'updated_at'>): Promise<Impianto> {
     const { data, error } = await supabase
       .from('impianti')

@@ -1,52 +1,69 @@
+import { Button } from "@/components/ui/button"
+import { ArrowLeft, Calendar, Users, Ruler, Clock, Building2, Briefcase, Repeat } from "lucide-react"
+import Link from "next/link"
+
 export default function AdminPage() {
   return (
     <div className="container mx-auto p-4">
-      <h1 className="text-3xl font-bold mb-6">Amministrazione</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* Card per la gestione degli agenti */}
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h2 className="text-xl font-semibold mb-2">Agenti</h2>
-          <p className="text-gray-600 mb-4">Gestisci gli agenti e le loro mansioni</p>
-          <a href="/admin/agenti" className="inline-block">
-            <button className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
-              Gestisci Agenti
-            </button>
-          </a>
-        </div>
+      <div className="flex items-center gap-4 mb-8">
+        <Link href="/">
+          <Button variant="outline" size="icon">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </Link>
+        <h1 className="text-2xl font-bold">Amministrazione</h1>
+      </div>
 
-        {/* Card per la gestione dei turni */}
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h2 className="text-xl font-semibold mb-2">Turni</h2>
-          <p className="text-gray-600 mb-4">Gestisci i turni di lavoro</p>
-          <a href="/admin/turni">
-            <button className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
-              Gestisci Turni
-            </button>
-          </a>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <Link href="/admin/agenti">
+          <Button className="w-full h-24 flex flex-col items-center justify-center gap-2">
+            <Users className="h-8 w-8" />
+            <span>Gestione Agenti</span>
+          </Button>
+        </Link>
 
-        {/* Card per la gestione degli impianti */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold mb-4">Impianti</h2>
-          <p className="text-gray-600 mb-4">Gestisci gli impianti e i righelli</p>
-          <a href="/admin/impianti" className="inline-block">
-            <button className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">
-              Gestisci Impianti
-            </button>
-          </a>
-        </div>
+        <Link href="/admin/turni">
+          <Button className="w-full h-24 flex flex-col items-center justify-center gap-2">
+            <Clock className="h-8 w-8" />
+            <span>Gestione Turni</span>
+          </Button>
+        </Link>
 
-        {/* Card per la gestione delle mansioni */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold mb-4">Mansioni</h2>
-          <p className="text-gray-600 mb-4">Gestisci le mansioni e le qualifiche</p>
-          <a href="/admin/mansioni" className="inline-block">
-            <button className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">
-              Gestisci Mansioni
-            </button>
-          </a>
-        </div>
+        <Link href="/admin/impianti">
+          <Button className="w-full h-24 flex flex-col items-center justify-center gap-2">
+            <Building2 className="h-8 w-8" />
+            <span>Gestione Impianti</span>
+          </Button>
+        </Link>
+
+        <Link href="/admin/mansioni">
+          <Button className="w-full h-24 flex flex-col items-center justify-center gap-2">
+            <Briefcase className="h-8 w-8" />
+            <span>Gestione Mansioni</span>
+          </Button>
+        </Link>
+
+        <Link href="/admin/ciclicita">
+          <Button className="w-full h-24 flex flex-col items-center justify-center gap-2">
+            <Repeat className="h-8 w-8" />
+            <span>Gestione Ciclicità</span>
+          </Button>
+        </Link>
+
+        <Link href="/admin/righelli">
+          <Button className="w-full h-24 flex flex-col items-center justify-center gap-2">
+            <Ruler className="h-8 w-8" />
+            <span>Gestione Righelli</span>
+          </Button>
+        </Link>
+
+        <Link href="/admin/assenze">
+          <Button className="w-full h-24 flex flex-col items-center justify-center gap-2">
+            <Calendar className="h-8 w-8" />
+            <span>Gestione Assenze</span>
+          </Button>
+        </Link>
       </div>
     </div>
-  );
+  )
 } 
