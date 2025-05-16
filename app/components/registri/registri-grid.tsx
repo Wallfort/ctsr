@@ -8,37 +8,26 @@ import { impiantiService, type Impianto } from '@/lib/services/impianti.service'
 import { mansioniService, type Mansione } from '@/lib/services/mansioni.service';
 import { createClient } from '@/utils/supabase/client';
 import type { Database } from '@/types/supabase';
-
-// Funzione per verificare se una data è un festivo italiano
-function isFestivoItaliano(data: Date): boolean {
-  const giorno = getDate(data);
-  const mese = getMonth(data);
-  const giornoSettimana = getDay(data);
-
-  // Domenica
-  if (giornoSettimana === 0) return true;
-
-  // Festivi fissi
-  const festiviFissi = [
-    { giorno: 1, mese: 0 },   // Capodanno
-    { giorno: 6, mese: 0 },   // Epifania
-    { giorno: 25, mese: 3 },  // Liberazione
-    { giorno: 1, mese: 4 },   // Festa del Lavoro
-    { giorno: 2, mese: 5 },   // Repubblica
-    { giorno: 15, mese: 7 },  // Ferragosto
-    { giorno: 1, mese: 10 },  // Tutti i Santi
-    { giorno: 8, mese: 11 },  // Immacolata
-    { giorno: 25, mese: 11 }, // Natale
-    { giorno: 26, mese: 11 }, // Santo Stefano
-  ];
-
-  return festiviFissi.some(festivo => festivo.giorno === giorno && festivo.mese === mese);
-}
+import { isFestivoItaliano } from '@/lib/utils/date';
+import { AssenzaModal } from './assenza-modal';
+import { assenzeService } from '@/lib/services/assenze.service';
 
 type RegistroTurno = Database['public']['Tables']['registro_turni_ordinari']['Row'] & {
   turno: Database['public']['Tables']['turni']['Row'];
-  agente: Database['public']['Tables']['agenti']['Row'] | null;
+  agente: Database['public']['Tables']['agenti']['Row'] & {
+    registro_assenze: Array<{
+      id: number;
+      tipi_assenza: {
+        id: number;
+        codice: string;
+        nome: string;
+      };
+    }> | null;
+  };
   posizione: Database['public']['Tables']['posizioni']['Row'];
+  assente: boolean;
+  agente_id: string;
+  sostituto_id: string | null;
 };
 
 type RegistriGridProps = {
@@ -51,6 +40,9 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
   const [registri, setRegistri] = useState<Record<string, Record<string, RegistroTurno[]>>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedTurno, setSelectedTurno] = useState<RegistroTurno | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const supabase = createClient();
 
@@ -69,17 +61,11 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
         mansioniService.getAll()
       ]);
 
-      console.log('Impianti recuperati:', impiantiData);
-      console.log('Mansioni recuperate:', mansioniData);
-
       // Filtra gli impianti in base alla mansione selezionata
       const impiantiFiltrati = impiantiData.filter(impianto => {
         const mansione = mansioniData.find(m => m.id === impianto.mansione_id);
         return mansione?.nome.toLowerCase().includes(selectedSection.toLowerCase());
       });
-
-      console.log('Impianti filtrati:', impiantiFiltrati);
-      console.log('Sezione selezionata:', selectedSection);
 
       setImpianti(impiantiFiltrati);
 
@@ -87,14 +73,22 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
       const dataInizio = startOfMonth(mese);
       const dataFine = endOfMonth(mese);
 
-      console.log('Periodo:', { dataInizio, dataFine });
-
       const { data: registriData, error: registriError } = await supabase
         .from('registro_turni_ordinari')
         .select(`
           *,
           turno:turni (*),
-          agente:agenti!registro_turni_ordinari_agente_id_fkey (*),
+          agente:agenti!registro_turni_ordinari_agente_id_fkey (
+            *,
+            registro_assenze (
+              id,
+              tipi_assenza (
+                id,
+                codice,
+                nome
+              )
+            )
+          ),
           posizione:posizioni (*)
         `)
         .gte('data', dataInizio.toISOString())
@@ -102,16 +96,12 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
         .in('impianto_id', impiantiFiltrati.map(i => i.id));
 
       if (registriError) {
-        console.error('Errore nel recupero dei registri:', registriError);
         throw new Error(`Errore nel recupero dei registri: ${registriError.message}`);
       }
-
-      console.log('Registri recuperati:', registriData);
 
       // Organizza i registri per impianto e data
       const registriOrganizzati: Record<string, Record<string, RegistroTurno[]>> = {};
       registriData.forEach(registro => {
-        // Converti la data in formato locale
         const dataLocale = format(parseISO(registro.data), 'yyyy-MM-dd');
         
         if (!registriOrganizzati[registro.impianto_id]) {
@@ -123,14 +113,51 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
         registriOrganizzati[registro.impianto_id][dataLocale].push(registro as RegistroTurno);
       });
 
-      console.log('Registri organizzati:', registriOrganizzati);
-
       setRegistri(registriOrganizzati);
     } catch (err) {
       console.error('Errore nel caricamento dei dati:', err);
       setError(err instanceof Error ? err.message : 'Errore nel caricamento dei dati');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleTurnoClick = async (turno: RegistroTurno) => {
+    setSelectedTurno(turno);
+    setIsModalOpen(true);
+  };
+
+  const handleSaveAssenza = async (assenzaId: number) => {
+    if (!selectedTurno) return;
+
+    setLoading(true);
+    try {
+      await assenzeService.assegnaAssenza(selectedTurno.id, assenzaId);
+      // Ricarica i dati del registro
+      window.location.reload();
+    } catch (error) {
+      console.error('Errore nell\'assegnazione dell\'assenza:', error);
+      alert('Errore nell\'assegnazione dell\'assenza');
+    } finally {
+      setLoading(false);
+      setIsModalOpen(false);
+    }
+  };
+
+  const handleRemoveAssenza = async () => {
+    if (!selectedTurno) return;
+
+    setLoading(true);
+    try {
+      await assenzeService.rimuoviAssenza(selectedTurno.id);
+      // Ricarica i dati del registro
+      window.location.reload();
+    } catch (error) {
+      console.error('Errore nella rimozione dell\'assenza:', error);
+      alert('Errore nella rimozione dell\'assenza');
+    } finally {
+      setLoading(false);
+      setIsModalOpen(false);
     }
   };
 
@@ -167,8 +194,6 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
             turniPerPosizione.get(posizioneId)?.push(turno);
           });
         });
-
-        console.log(`Turni per posizione per ${impianto.nome}:`, Object.fromEntries(turniPerPosizione));
 
         return (
           <div key={impianto.id} className="bg-white rounded-lg shadow-md p-4">
@@ -220,9 +245,28 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
                           return (
                             <td key={giorno.toISOString()} className={`border p-2 text-center ${isFestivo ? 'bg-red-50' : ''}`}>
                               {turno ? (
-                                <span className="px-2 py-1 rounded bg-blue-100 text-blue-800">
-                                  {turno.turno.codice}
-                                </span>
+                                <div className="flex flex-col items-center gap-1">
+                                  {turno.assente && turno.agente_id && !turno.sostituto_id && turno.agente?.registro_assenze && turno.agente.registro_assenze.length > 0 && (
+                                    <div className="text-lg font-bold text-red-600 bg-white px-2 py-1 rounded shadow-md border border-red-200">
+                                      {turno.agente.registro_assenze[0].tipi_assenza.codice}
+                                    </div>
+                                  )}
+                                  <button
+                                    onClick={() => handleTurnoClick(turno)}
+                                    className={`px-2 py-1 rounded relative ${
+                                      turno.assente
+                                        ? 'bg-red-100 text-red-800'
+                                        : 'bg-blue-100 text-blue-800'
+                                    } hover:opacity-80 transition-opacity`}
+                                  >
+                                    {turno.turno.codice}
+                                    {turno.assente && (
+                                      <div className="absolute inset-0 flex items-center justify-center">
+                                        <div className="w-full h-0.5 bg-red-800 transform rotate-45 origin-center"></div>
+                                      </div>
+                                    )}
+                                  </button>
+                                </div>
                               ) : null}
                             </td>
                           );
@@ -236,6 +280,14 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
           </div>
         );
       })}
+
+      <AssenzaModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSave={handleSaveAssenza}
+        onRemove={handleRemoveAssenza}
+        currentAssenzaId={selectedTurno?.agente?.registro_assenze?.[0]?.tipi_assenza.id}
+      />
     </div>
   );
 } 
