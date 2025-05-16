@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { impiantiService, type Impianto } from '@/lib/services/impianti.service';
 import { righelliService, type Righello } from '@/lib/services/righelli.service';
 import { mansioniService, type Mansione } from '@/lib/services/mansioni.service';
+import { PianificazioneService } from '@/lib/services/pianificazione.service';
 import { useSelector } from '@/lib/context/selector-context';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,9 @@ export default function PianificazionePage() {
   const [error, setError] = useState<string | null>(null);
   const [dataInizio, setDataInizio] = useState<string>('');
   const [dataFine, setDataFine] = useState<string>('');
+  const [isPianificando, setIsPianificando] = useState(false);
+
+  const pianificazioneService = new PianificazioneService();
 
   useEffect(() => {
     loadData();
@@ -64,7 +68,7 @@ export default function PianificazionePage() {
     }
   };
 
-  const handlePianificazione = () => {
+  const handlePianificazione = async () => {
     if (!dataInizio || !dataFine) {
       setError('Seleziona le date di inizio e fine pianificazione');
       return;
@@ -73,8 +77,31 @@ export default function PianificazionePage() {
       setError('La data di inizio deve essere precedente alla data di fine');
       return;
     }
-    // TODO: Implementare la logica di pianificazione
-    console.log('Pianificazione per il periodo:', { dataInizio, dataFine });
+
+    try {
+      setIsPianificando(true);
+      setError(null);
+
+      // Per ogni impianto con righello attivo, pianifica i turni
+      for (const impianto of impianti) {
+        if (!impianto.righelloAttivo) continue;
+
+        await pianificazioneService.pianifica({
+          dataInizio: new Date(dataInizio),
+          dataFine: new Date(dataFine),
+          selettore: selectedSection as 'stazioni' | 'impianti',
+          elementoId: impianto.id
+        });
+      }
+
+      // Ricarica i dati per mostrare eventuali aggiornamenti
+      await loadData();
+    } catch (err) {
+      console.error('Errore durante la pianificazione:', err);
+      setError(err instanceof Error ? err.message : 'Errore durante la pianificazione');
+    } finally {
+      setIsPianificando(false);
+    }
   };
 
   if (isLoading) {
@@ -90,40 +117,39 @@ export default function PianificazionePage() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Pianificazione - {selectedSection.charAt(0).toUpperCase() + selectedSection.slice(1)}</h1>
         
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div>
-              <label htmlFor="data_inizio" className="block text-sm font-medium text-gray-700 mb-1">
-                Data Inizio
-              </label>
-              <input
-                type="date"
-                id="data_inizio"
-                value={dataInizio}
-                onChange={(e) => setDataInizio(e.target.value)}
-                className="block w-[240px] rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
+        <div className="flex items-center gap-2">
+          <div>
+            <label htmlFor="data_inizio" className="block text-sm font-medium text-gray-700 mb-1">
+              Data Inizio
+            </label>
+            <input
+              type="date"
+              id="data_inizio"
+              value={dataInizio}
+              onChange={(e) => setDataInizio(e.target.value)}
+              className="block w-[240px] rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            />
+          </div>
 
-            <div>
-              <label htmlFor="data_fine" className="block text-sm font-medium text-gray-700 mb-1">
-                Data Fine
-              </label>
-              <input
-                type="date"
-                id="data_fine"
-                value={dataFine}
-                onChange={(e) => setDataFine(e.target.value)}
-                className="block w-[240px] rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
+          <div>
+            <label htmlFor="data_fine" className="block text-sm font-medium text-gray-700 mb-1">
+              Data Fine
+            </label>
+            <input
+              type="date"
+              id="data_fine"
+              value={dataFine}
+              onChange={(e) => setDataFine(e.target.value)}
+              className="block w-[240px] rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            />
           </div>
 
           <Button 
             onClick={handlePianificazione}
             className="bg-primary text-primary-foreground hover:bg-primary/90"
+            disabled={isPianificando}
           >
-            Pianifica
+            {isPianificando ? 'Pianificazione in corso...' : 'Pianifica'}
           </Button>
         </div>
       </div>
@@ -134,7 +160,7 @@ export default function PianificazionePage() {
         </div>
       )}
       
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="space-y-4">
         {impianti.map((impianto) => (
           <div
             key={impianto.id}

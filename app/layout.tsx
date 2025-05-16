@@ -131,13 +131,19 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const pathname = usePathname();
+  const isHomePage = pathname === '/';
+
   return (
     <html lang="it">
       <body className={inter.className}>
         <SelectorProvider>
           <div className="min-h-screen bg-gray-50">
             <Navigation />
-            <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <main className={cn(
+              "py-6",
+              isHomePage ? "px-2" : "max-w-7xl mx-auto sm:px-6 lg:px-8"
+            )}>
               {children}
             </main>
           </div>
