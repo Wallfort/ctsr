@@ -6,7 +6,7 @@ import { it } from 'date-fns/locale';
 import { useSelector } from '@/lib/context/selector-context';
 import { impiantiService, type Impianto } from '@/lib/services/impianti.service';
 import { mansioniService, type Mansione } from '@/lib/services/mansioni.service';
-import { createClient } from '@/utils/supabase/client';
+import { createClient } from '@/lib/supabase/client';
 import type { Database } from '@/types/supabase';
 import { isFestivoItaliano } from '@/lib/utils/date';
 import { AssenzaModal } from './assenza-modal';

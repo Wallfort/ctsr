@@ -279,6 +279,56 @@ export interface Database {
           updated_at?: string
         }
       }
+      tipi_assenza: {
+        Row: {
+          id: number
+          codice: string
+          nome: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          codice: string
+          nome: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          codice?: string
+          nome?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      registro_assenze: {
+        Row: {
+          id: string
+          data: string
+          assenza_id: number
+          agente_id: string
+          created_at: string
+          updated_at: string
+          tipi_assenza: Database['public']['Tables']['tipi_assenza']['Row']
+        }
+        Insert: {
+          id?: string
+          data: string
+          assenza_id: number
+          agente_id: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          data?: string
+          assenza_id?: number
+          agente_id?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
     Views: {
       [_ in never]: never

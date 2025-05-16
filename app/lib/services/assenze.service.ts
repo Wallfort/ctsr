@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
+import { Database } from '@/types/supabase';
 
 export type Assenza = {
   id: string;
@@ -90,5 +91,105 @@ export const assenzeService = {
       console.error('Errore nell\'eliminazione dell\'assenza:', error);
       throw new Error(error.message);
     }
+  },
+
+  async assegnaAssenza(turnoId: string, assenzaId: number) {
+    // Recupera il turno
+    const { data: turno, error: turnoError } = await supabase
+      .from('registro_turni_ordinari')
+      .select('*')
+      .eq('id', turnoId)
+      .single();
+
+    if (turnoError || !turno) {
+      throw new Error('Turno non trovato');
+    }
+
+    // Aggiorna il turno come assente
+    const { error: updateError } = await supabase
+      .from('registro_turni_ordinari')
+      .update({ assente: true })
+      .eq('id', turnoId);
+
+    if (updateError) {
+      throw new Error('Errore nell\'aggiornamento del turno');
+    }
+
+    // Crea il record di assenza
+    const { error: assenzaError } = await supabase
+      .from('registro_assenze')
+      .insert({
+        data: turno.data,
+        assenza_id: assenzaId,
+        agente_id: turno.agente_id
+      });
+
+    if (assenzaError) {
+      // Se c'è un errore nell'inserimento dell'assenza, ripristina il turno
+      await supabase
+        .from('registro_turni_ordinari')
+        .update({ assente: false })
+        .eq('id', turnoId);
+      throw new Error('Errore nell\'inserimento dell\'assenza');
+    }
+  },
+
+  async rimuoviAssenza(turnoId: string) {
+    // Recupera il turno
+    const { data: turno, error: turnoError } = await supabase
+      .from('registro_turni_ordinari')
+      .select('*')
+      .eq('id', turnoId)
+      .single();
+
+    if (turnoError || !turno) {
+      throw new Error('Turno non trovato');
+    }
+
+    // Rimuovi il record di assenza
+    const { error: assenzaError } = await supabase
+      .from('registro_assenze')
+      .delete()
+      .eq('agente_id', turno.agente_id)
+      .eq('data', turno.data);
+
+    if (assenzaError) {
+      throw new Error('Errore nella rimozione dell\'assenza');
+    }
+
+    // Aggiorna il turno come presente
+    const { error: updateError } = await supabase
+      .from('registro_turni_ordinari')
+      .update({ assente: false })
+      .eq('id', turnoId);
+
+    if (updateError) {
+      throw new Error('Errore nell\'aggiornamento del turno');
+    }
+  },
+
+  async getAssenzaPerTurno(turnoId: string) {
+    const { data: turno, error: turnoError } = await supabase
+      .from('registro_turni_ordinari')
+      .select('*')
+      .eq('id', turnoId)
+      .single();
+
+    if (turnoError || !turno) {
+      throw new Error('Turno non trovato');
+    }
+
+    const { data: assenza, error: assenzaError } = await supabase
+      .from('registro_assenze')
+      .select('*, tipi_assenza(*)')
+      .eq('agente_id', turno.agente_id)
+      .eq('data', turno.data)
+      .single();
+
+    if (assenzaError && assenzaError.code !== 'PGRST116') { // PGRST116 è il codice per "nessun risultato trovato"
+      throw new Error('Errore nel recupero dell\'assenza');
+    }
+
+    return assenza;
   }
 }; 
