@@ -6,8 +6,14 @@ export type Impianto = {
   mansione_id: number;
   nr_turni: number;
   stato: 'attivo' | 'inattivo';
+  linea_id: number | null;
   created_at?: string;
   updated_at?: string;
+};
+
+export type Linea = {
+  id: number;
+  nome: string;
 };
 
 const supabase = createClient();
@@ -79,5 +85,18 @@ export const impiantiService = {
       console.error('Errore nell\'eliminazione dell\'impianto:', error);
       throw new Error(`Errore nell'eliminazione dell'impianto: ${error.message}`);
     }
+  },
+
+  async getLinee(): Promise<Linea[]> {
+    const { data, error } = await supabase
+      .from('linee')
+      .select('id, nome')
+      .order('nome');
+
+    if (error) {
+      console.error('Errore nel recupero delle linee:', error);
+      throw new Error(`Errore nel recupero delle linee: ${error.message}`);
+    }
+    return data || [];
   }
 }; 
