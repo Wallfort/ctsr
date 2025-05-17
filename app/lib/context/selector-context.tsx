@@ -1,19 +1,35 @@
 'use client';
 
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 
 type SelectorContextType = {
-  selectedSection: string;
-  setSelectedSection: (section: string) => void;
+  selectedMansioneId: number | null;
+  setSelectedMansioneId: (mansioneId: number | null) => void;
 };
 
 const SelectorContext = createContext<SelectorContextType | undefined>(undefined);
 
 export function SelectorProvider({ children }: { children: ReactNode }) {
-  const [selectedSection, setSelectedSection] = useState('stazioni');
+  const [selectedMansioneId, setSelectedMansioneId] = useState<number | null>(() => {
+    // Inizializza lo stato dal localStorage se disponibile
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('selectedMansioneId');
+      return saved ? parseInt(saved, 10) : null;
+    }
+    return null;
+  });
+
+  // Aggiorna il localStorage quando cambia la mansione selezionata
+  useEffect(() => {
+    if (selectedMansioneId !== null) {
+      localStorage.setItem('selectedMansioneId', selectedMansioneId.toString());
+    } else {
+      localStorage.removeItem('selectedMansioneId');
+    }
+  }, [selectedMansioneId]);
 
   return (
-    <SelectorContext.Provider value={{ selectedSection, setSelectedSection }}>
+    <SelectorContext.Provider value={{ selectedMansioneId, setSelectedMansioneId }}>
       {children}
     </SelectorContext.Provider>
   );

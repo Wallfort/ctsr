@@ -28,9 +28,10 @@ export default function Home() {
   };
 
   return (
-    <div className="relative flex">
-      <div className={`flex-1 transition-all duration-300 ${showSidebar ? 'mr-80' : ''}`}>
-        <div className="space-y-8">
+    <div className="grid grid-cols-1 min-h-screen">
+      {/* Main content */}
+      <div className={`transition-all duration-300 ${showSidebar ? 'pr-80' : ''}`}>
+        <div className="space-y-8 px-4">
           <div className="sticky top-0 z-20 bg-gray-50 pt-2 pb-4">
             <div className="flex justify-end mb-2">
               <button
@@ -53,11 +54,14 @@ export default function Home() {
 
       {/* Sidebar */}
       <div 
-        className={`fixed right-0 top-0 h-full w-80 bg-white shadow-lg transform transition-transform duration-300 ease-in-out ${
+        className={`fixed right-0 top-0 h-full w-80 bg-white shadow-lg transform transition-transform duration-300 ease-in-out border-l ${
           showSidebar ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        <Sidebar data={brogliaccioDate} />
+        <Sidebar 
+          selectedDate={brogliaccioDate} 
+          onDateChange={handleBrogliaccioDateChange}
+        />
       </div>
 
       {/* Toggle button */}

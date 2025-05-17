@@ -8,65 +8,52 @@ import Link from 'next/link';
 import { Home, Settings, Calendar } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { SelectorProvider, useSelector } from '@/lib/context/selector-context';
+import { useState, useEffect } from 'react';
+import { mansioniService, type Mansione } from '@/lib/services/mansioni.service';
 
 const inter = Inter({ subsets: ['latin'] });
 
 function Navigation() {
-  const { selectedSection, setSelectedSection } = useSelector();
+  const { selectedMansioneId, setSelectedMansioneId } = useSelector();
   const pathname = usePathname();
   const showSelectors = pathname === '/' || pathname === '/pianificazione';
+  const [mansioni, setMansioni] = useState<Mansione[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadMansioni() {
+      try {
+        const data = await mansioniService.getAll();
+        const mansioniAttive = data.filter(m => m.stato === 'attivo');
+        setMansioni(mansioniAttive);
+      } catch (error) {
+        console.error('Errore nel caricamento delle mansioni:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    loadMansioni();
+  }, []);
 
   return (
     <>
       {/* Barra di navigazione principale */}
       <nav className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
+          <div className="flex justify-between h-14">
             <div className="flex">
-              <div className="flex-shrink-0 flex items-center">
-                <span className="text-xl font-bold text-gray-900">CTSR</span>
-              </div>
-              <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-                <Link href="/">
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    className={cn(
-                      "h-16 px-4 border-b-2 border-transparent hover:border-gray-300 hover:bg-gray-50",
-                      pathname === '/' && "border-primary"
-                    )}
-                  >
-                    <Home className="h-5 w-5 mr-2" />
-                    Home
-                  </Button>
-                </Link>
-                <Link href="/pianificazione">
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    className={cn(
-                      "h-16 px-4 border-b-2 border-transparent hover:border-gray-300 hover:bg-gray-50",
-                      pathname === '/pianificazione' && "border-primary"
-                    )}
-                  >
-                    <Calendar className="h-5 w-5 mr-2" />
-                    Pianificazione
-                  </Button>
-                </Link>
-                <Link href="/admin">
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    className={cn(
-                      "h-16 px-4 border-b-2 border-transparent hover:border-gray-300 hover:bg-gray-50",
-                      pathname === '/admin' && "border-primary"
-                    )}
-                  >
-                    <Settings className="h-5 w-5 mr-2" />
-                    Amministrazione
-                  </Button>
-                </Link>
-              </div>
+              <Link href="/" className="flex items-center">
+                <Home className="h-5 w-5" />
+                <span className="ml-2">Home</span>
+              </Link>
+              <Link href="/pianificazione" className="ml-8 flex items-center">
+                <Calendar className="h-5 w-5" />
+                <span className="ml-2">Pianificazione</span>
+              </Link>
+              <Link href="/admin" className="ml-8 flex items-center">
+                <Settings className="h-5 w-5" />
+                <span className="ml-2">Admin</span>
+              </Link>
             </div>
           </div>
         </div>
@@ -78,45 +65,26 @@ function Navigation() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between h-14">
               <div className="flex space-x-4">
-                <Button 
-                  variant={selectedSection === 'stazioni' ? 'default' : 'ghost'} 
-                  size="sm"
-                  onClick={() => setSelectedSection('stazioni')}
-                  className={cn(
-                    "h-14 px-4 font-medium transition-colors",
-                    selectedSection === 'stazioni' 
-                      ? "bg-primary text-primary-foreground" 
-                      : "hover:bg-gray-100"
-                  )}
-                >
-                  Stazioni
-                </Button>
-                <Button 
-                  variant={selectedSection === 'fermate' ? 'default' : 'ghost'} 
-                  size="sm"
-                  onClick={() => setSelectedSection('fermate')}
-                  className={cn(
-                    "h-14 px-4 font-medium transition-colors",
-                    selectedSection === 'fermate' 
-                      ? "bg-primary text-primary-foreground" 
-                      : "hover:bg-gray-100"
-                  )}
-                >
-                  Fermate
-                </Button>
-                <Button 
-                  variant={selectedSection === 'pl' ? 'default' : 'ghost'} 
-                  size="sm"
-                  onClick={() => setSelectedSection('pl')}
-                  className={cn(
-                    "h-14 px-4 font-medium transition-colors",
-                    selectedSection === 'pl' 
-                      ? "bg-primary text-primary-foreground" 
-                      : "hover:bg-gray-100"
-                  )}
-                >
-                  PL
-                </Button>
+                {isLoading ? (
+                  <div className="flex items-center h-14 px-4">Caricamento...</div>
+                ) : (
+                  mansioni.map((mansione) => (
+                    <Button 
+                      key={mansione.id}
+                      variant={selectedMansioneId === mansione.id ? 'default' : 'ghost'} 
+                      size="sm"
+                      onClick={() => setSelectedMansioneId(mansione.id)}
+                      className={cn(
+                        "h-14 px-4 font-medium transition-colors",
+                        selectedMansioneId === mansione.id 
+                          ? "bg-primary text-primary-foreground" 
+                          : "hover:bg-gray-100"
+                      )}
+                    >
+                      {mansione.nome}
+                    </Button>
+                  ))
+                )}
               </div>
             </div>
           </div>

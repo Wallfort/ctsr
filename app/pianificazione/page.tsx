@@ -8,26 +8,59 @@ import { PianificazioneService } from '@/lib/services/pianificazione.service';
 import { useSelector } from '@/lib/context/selector-context';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { createClient } from '@/lib/supabase/client';
+import { format, addMonths } from 'date-fns';
+import { it } from 'date-fns/locale';
 
 type ImpiantoWithRighello = Impianto & {
   righelloAttivo?: Righello;
   mansione?: Mansione;
 };
 
+type PianificazioneParams = {
+  dataInizio: Date;
+  dataFine: Date;
+  selettore: 'mansioni';
+  elementoId: number;
+};
+
 export default function PianificazionePage() {
-  const { selectedSection } = useSelector();
+  const { selectedMansioneId } = useSelector();
   const [impianti, setImpianti] = useState<ImpiantoWithRighello[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dataInizio, setDataInizio] = useState<string>('');
-  const [dataFine, setDataFine] = useState<string>('');
-  const [isPianificando, setIsPianificando] = useState(false);
+  const [selectedMansioneNome, setSelectedMansioneNome] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [dataInizio, setDataInizio] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [dataFine, setDataFine] = useState<string>(format(addMonths(new Date(), 1), 'yyyy-MM-dd'));
+  const supabase = createClient();
 
   const pianificazioneService = new PianificazioneService();
 
   useEffect(() => {
+    if (!selectedMansioneId) return;
+
+    const loadMansione = async () => {
+      const { data: mansione, error } = await supabase
+        .from('mansioni')
+        .select('nome')
+        .eq('id', selectedMansioneId)
+        .single();
+
+      if (error) {
+        console.error('Errore nel caricamento della mansione:', error);
+        return;
+      }
+
+      setSelectedMansioneNome(mansione.nome);
+    };
+
+    loadMansione();
+  }, [selectedMansioneId]);
+
+  useEffect(() => {
     loadData();
-  }, [selectedSection]);
+  }, [selectedMansioneId]);
 
   const loadData = async () => {
     try {
@@ -41,13 +74,13 @@ export default function PianificazionePage() {
       // Filtra i righelli attivi
       const righelliAttivi = righelliData.filter(r => r.stato === 'attivo');
 
+      // Trova la mansione selezionata
+      const selectedMansione = mansioniData.find(m => m.id === selectedMansioneId);
+      setSelectedMansioneNome(selectedMansione?.nome || '');
+
       // Combina i dati
       const impiantiWithRighello = impiantiData
-        .filter(impianto => {
-          const mansione = mansioniData.find(m => m.id === impianto.mansione_id);
-          // Filtra in base al nome della mansione
-          return mansione?.nome.toLowerCase().includes(selectedSection.toLowerCase());
-        })
+        .filter(impianto => impianto.mansione_id === selectedMansioneId)
         .map(impianto => {
           const righelloAttivo = righelliAttivi.find(r => r.impianto_id === impianto.id);
           const mansione = mansioniData.find(m => m.id === impianto.mansione_id);
@@ -68,39 +101,40 @@ export default function PianificazionePage() {
     }
   };
 
-  const handlePianificazione = async () => {
+  const handlePianifica = async () => {
+    if (!selectedMansioneId) {
+      setError('Seleziona una mansione');
+      return;
+    }
+
     if (!dataInizio || !dataFine) {
       setError('Seleziona le date di inizio e fine pianificazione');
       return;
     }
+
     if (new Date(dataInizio) > new Date(dataFine)) {
       setError('La data di inizio deve essere precedente alla data di fine');
       return;
     }
 
+    setLoading(true);
+    setError(null);
+
     try {
-      setIsPianificando(true);
-      setError(null);
+      const params: PianificazioneParams = {
+        dataInizio: new Date(dataInizio),
+        dataFine: new Date(dataFine),
+        selettore: 'mansioni',
+        elementoId: selectedMansioneId
+      };
 
-      // Per ogni impianto con righello attivo, pianifica i turni
-      for (const impianto of impianti) {
-        if (!impianto.righelloAttivo) continue;
-
-        await pianificazioneService.pianifica({
-          dataInizio: new Date(dataInizio),
-          dataFine: new Date(dataFine),
-          selettore: selectedSection as 'stazioni' | 'impianti',
-          elementoId: impianto.id
-        });
-      }
-
-      // Ricarica i dati per mostrare eventuali aggiornamenti
+      await pianificazioneService.pianifica(params);
+      // Ricarica i dati dopo la pianificazione
       await loadData();
     } catch (err) {
-      console.error('Errore durante la pianificazione:', err);
       setError(err instanceof Error ? err.message : 'Errore durante la pianificazione');
     } finally {
-      setIsPianificando(false);
+      setLoading(false);
     }
   };
 
@@ -115,7 +149,7 @@ export default function PianificazionePage() {
   return (
     <div className="container mx-auto p-4">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Pianificazione - {selectedSection.charAt(0).toUpperCase() + selectedSection.slice(1)}</h1>
+        <h1 className="text-2xl font-bold">Pianificazione - {selectedMansioneNome}</h1>
         
         <div className="flex items-center gap-2">
           <div>
@@ -145,11 +179,11 @@ export default function PianificazionePage() {
           </div>
 
           <Button 
-            onClick={handlePianificazione}
+            onClick={handlePianifica}
             className="bg-primary text-primary-foreground hover:bg-primary/90"
-            disabled={isPianificando}
+            disabled={loading}
           >
-            {isPianificando ? 'Pianificazione in corso...' : 'Pianifica'}
+            {loading ? 'Pianificazione in corso...' : 'Pianifica'}
           </Button>
         </div>
       </div>

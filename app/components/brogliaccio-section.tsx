@@ -7,6 +7,7 @@ import { it } from 'date-fns/locale';
 import "react-datepicker/dist/react-datepicker.css";
 import { getBrogliaccioEntries, type BrogliaccioEntry } from '@/lib/services/brogliaccio.service';
 import { createClient } from '@/lib/supabase/client';
+import { useSelector } from '@/lib/context/selector-context';
 
 interface BrogliaccioSectionProps {
   selectedDate: Date;
@@ -14,6 +15,7 @@ interface BrogliaccioSectionProps {
 }
 
 export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSectionProps) {
+  const { selectedMansioneId } = useSelector();
   const [entries, setEntries] = useState<BrogliaccioEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirmedRows, setConfirmedRows] = useState<Set<number>>(new Set());
@@ -37,8 +39,13 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
 
   useEffect(() => {
     async function loadEntries() {
+      if (!selectedMansioneId) {
+        setEntries([]);
+        return;
+      }
+
       setLoading(true);
-      const data = await getBrogliaccioEntries(selectedDate);
+      const data = await getBrogliaccioEntries(selectedDate, selectedMansioneId);
       setEntries(data);
       // Inizializza le righe confermate per i turni non ordinari
       const initialConfirmed = new Set(
@@ -50,7 +57,7 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
       setLoading(false);
     }
     loadEntries();
-  }, [selectedDate]);
+  }, [selectedDate, selectedMansioneId]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {

@@ -12,6 +12,10 @@ type TipoAssenza = {
   id: string;
   codice: string;
   nome: string;
+  is_disponibile: boolean;
+  is_compensativo: boolean;
+  is_riposo: boolean;
+  possibile_dt: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -22,6 +26,10 @@ export default function AssenzePage() {
   const [editingTipo, setEditingTipo] = useState<TipoAssenza | null>(null);
   const [codice, setCodice] = useState('');
   const [nome, setNome] = useState('');
+  const [isDisponibile, setIsDisponibile] = useState(false);
+  const [isCompensativo, setIsCompensativo] = useState(false);
+  const [isRiposo, setIsRiposo] = useState(false);
+  const [possibileDt, setPossibileDt] = useState(false);
 
   const supabase = createClient();
 
@@ -56,7 +64,14 @@ export default function AssenzePage() {
         // Modifica tipo esistente
         const { error } = await supabase
           .from("tipi_assenza")
-          .update({ codice, nome })
+          .update({ 
+            codice, 
+            nome,
+            is_disponibile: isDisponibile,
+            is_compensativo: isCompensativo,
+            is_riposo: isRiposo,
+            possibile_dt: possibileDt
+          })
           .eq("id", editingTipo.id);
 
         if (error) throw error;
@@ -64,7 +79,14 @@ export default function AssenzePage() {
         // Crea nuovo tipo
         const { error } = await supabase
           .from("tipi_assenza")
-          .insert([{ codice, nome }]);
+          .insert([{ 
+            codice, 
+            nome,
+            is_disponibile: isDisponibile,
+            is_compensativo: isCompensativo,
+            is_riposo: isRiposo,
+            possibile_dt: possibileDt
+          }]);
 
         if (error) throw error;
       }
@@ -81,6 +103,10 @@ export default function AssenzePage() {
     setEditingTipo(tipo);
     setCodice(tipo.codice);
     setNome(tipo.nome);
+    setIsDisponibile(tipo.is_disponibile);
+    setIsCompensativo(tipo.is_compensativo);
+    setIsRiposo(tipo.is_riposo);
+    setPossibileDt(tipo.possibile_dt);
     setIsModalOpen(true);
   };
 
@@ -107,6 +133,10 @@ export default function AssenzePage() {
     setEditingTipo(null);
     setCodice('');
     setNome('');
+    setIsDisponibile(false);
+    setIsCompensativo(false);
+    setIsRiposo(false);
+    setPossibileDt(false);
   };
 
   return (
@@ -137,6 +167,18 @@ export default function AssenzePage() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Nome
               </th>
+              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Disponibile
+              </th>
+              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Compensativo
+              </th>
+              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Riposo
+              </th>
+              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Possibile DT
+              </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Azioni
               </th>
@@ -150,6 +192,18 @@ export default function AssenzePage() {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {tipo.nome}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
+                  {tipo.is_disponibile ? '✓' : '✗'}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
+                  {tipo.is_compensativo ? '✓' : '✗'}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
+                  {tipo.is_riposo ? '✓' : '✗'}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
+                  {tipo.possibile_dt ? '✓' : '✗'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                   <Button
@@ -200,6 +254,48 @@ export default function AssenzePage() {
                   placeholder="Inserisci il nome"
                   required
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="isDisponibile"
+                    checked={isDisponibile}
+                    onChange={(e) => setIsDisponibile(e.target.checked)}
+                    className="rounded border-gray-300"
+                  />
+                  <Label htmlFor="isDisponibile">Disponibile</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="isCompensativo"
+                    checked={isCompensativo}
+                    onChange={(e) => setIsCompensativo(e.target.checked)}
+                    className="rounded border-gray-300"
+                  />
+                  <Label htmlFor="isCompensativo">Compensativo</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="isRiposo"
+                    checked={isRiposo}
+                    onChange={(e) => setIsRiposo(e.target.checked)}
+                    className="rounded border-gray-300"
+                  />
+                  <Label htmlFor="isRiposo">Riposo</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="possibileDt"
+                    checked={possibileDt}
+                    onChange={(e) => setPossibileDt(e.target.checked)}
+                    className="rounded border-gray-300"
+                  />
+                  <Label htmlFor="possibileDt">Possibile DT</Label>
+                </div>
               </div>
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={handleCloseModal}>

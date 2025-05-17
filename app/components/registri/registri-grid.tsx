@@ -36,7 +36,7 @@ type RegistriGridProps = {
 };
 
 export function RegistriGrid({ mese }: RegistriGridProps) {
-  const { selectedSection } = useSelector();
+  const { selectedMansioneId } = useSelector();
   const [impianti, setImpianti] = useState<Impianto[]>([]);
   const [registri, setRegistri] = useState<Record<string, Record<string, RegistroTurno[]>>>({});
   const [isLoading, setIsLoading] = useState(true);
@@ -49,7 +49,7 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
 
   useEffect(() => {
     loadData();
-  }, [selectedSection, mese]);
+  }, [selectedMansioneId, mese]);
 
   const loadData = async () => {
     try {
@@ -63,10 +63,9 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
       ]);
 
       // Filtra gli impianti in base alla mansione selezionata
-      const impiantiFiltrati = impiantiData.filter(impianto => {
-        const mansione = mansioniData.find(m => m.id === impianto.mansione_id);
-        return mansione?.nome.toLowerCase().includes(selectedSection.toLowerCase());
-      });
+      const impiantiFiltrati = impiantiData.filter(impianto => 
+        impianto.mansione_id === selectedMansioneId
+      );
 
       // Recupera i registri per il mese selezionato
       const dataInizio = startOfMonth(mese);
@@ -140,6 +139,8 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
     try {
       await assenzeService.assegnaAssenza(selectedTurno.id, assenzaId);
       // Ricarica i dati del registro
+      await loadData();
+      // Forza il ricaricamento della pagina per aggiornare il brogliaccio
       window.location.reload();
     } catch (error) {
       console.error('Errore nell\'assegnazione dell\'assenza:', error);
@@ -157,6 +158,8 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
     try {
       await assenzeService.rimuoviAssenza(selectedTurno.id);
       // Ricarica i dati del registro
+      await loadData();
+      // Forza il ricaricamento della pagina per aggiornare il brogliaccio
       window.location.reload();
     } catch (error) {
       console.error('Errore nella rimozione dell\'assenza:', error);

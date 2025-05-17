@@ -4,23 +4,31 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Database } from '@/types/supabase';
 import { format } from 'date-fns';
+import { useSelector } from '@/lib/context/selector-context';
 
-type AgenteDisponibile = {
+interface Impianto {
+  id: number;
+  nome: string;
+}
+
+interface Agente {
   id: string;
   cognome: string;
   nome: string;
+}
+
+interface AgenteDisponibile {
+  id: string;
+  nome: string;
+  cognome: string;
   impianto: string;
-};
+}
 
 interface AgenteCT {
-  agente: {
-    id: string;
-    cognome: string;
-    nome: string;
-  };
-  tipi_assenza: {
-    codice: string;
-  };
+  id: string;
+  nome: string;
+  cognome: string;
+  impianto: string;
 }
 
 interface TurnoData {
@@ -29,254 +37,295 @@ interface TurnoData {
   };
 }
 
-interface SidebarProps {
-  data: Date;
+interface TurnoEntry {
+  agente: Agente;
+  impianto: {
+    nome: string;
+  };
 }
 
-export function Sidebar({ data }: SidebarProps) {
+interface SidebarProps {
+  selectedDate: Date;
+  onDateChange: (date: Date) => void;
+}
+
+export function Sidebar({ selectedDate, onDateChange }: SidebarProps) {
+  const { selectedMansioneId } = useSelector();
   const [agentiDisponibili, setAgentiDisponibili] = useState<AgenteDisponibile[]>([]);
-  const [agentiRC, setAgentiRC] = useState<AgenteDisponibile[]>([]);
+  const [agentiRC, setAgentiRC] = useState<AgenteCT[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const supabase = createClient();
 
   useEffect(() => {
-    const formattedDate = format(data, 'yyyy-MM-dd');
-    loadAgentiDisponibili(formattedDate);
-  }, [data]);
+    loadAgentiDisponibili();
+  }, [selectedDate, selectedMansioneId]);
 
-  const loadAgentiDisponibili = async (formattedDate: string) => {
+  const loadAgentiDisponibili = async () => {
     try {
       setIsLoading(true);
       setError(null);
-      const supabase = createClient();
 
-      // Recupera gli agenti con assenza CT
-      const { data: agentiCT, error: errorCT } = await supabase
+      if (!selectedMansioneId) {
+        setAgentiDisponibili([]);
+        setAgentiRC([]);
+        return;
+      }
+
+      // Recupera gli impianti associati alla mansione selezionata
+      const { data: impianti, error: impiantiError } = await supabase
+        .from('impianti')
+        .select('id')
+        .eq('mansione_id', selectedMansioneId)
+        .eq('stato', 'attivo');
+
+      if (impiantiError) {
+        throw new Error(`Errore nel recupero degli impianti: ${impiantiError.message}`);
+      }
+
+      if (!impianti || impianti.length === 0) {
+        setAgentiDisponibili([]);
+        setAgentiRC([]);
+        return;
+      }
+
+      // Recupera gli agenti disponibili
+      const { data: agentiDisponibiliData, error: disponibiliError } = await supabase
+        .from('registro_turni_ordinari')
+        .select(`
+          agente:agenti!registro_turni_ordinari_agente_id_fkey (
+            id,
+            nome,
+            cognome
+          ),
+          sostituto_id,
+          impianto:impianti!registro_turni_ordinari_impianto_id_fkey (
+            nome
+          )
+        `)
+        .eq('data', format(selectedDate, 'yyyy-MM-dd'))
+        .eq('is_disponibile', true)
+        .in('impianto_id', impianti.map(i => i.id))
+        .eq('mansione_id', selectedMansioneId)
+        .returns<{
+          agente: {
+            id: string;
+            nome: string;
+            cognome: string;
+          };
+          sostituto_id: string | null;
+          impianto: {
+            nome: string;
+          };
+        }[]>();
+
+      if (disponibiliError) {
+        throw new Error(`Errore nel recupero degli agenti disponibili: ${disponibiliError.message}`);
+      }
+
+      // Recupera gli agenti disponibili dalle assenze
+      const { data: agentiDisponibiliAssenzeData, error: disponibiliAssenzeError } = await supabase
         .from('registro_assenze')
         .select(`
           agente:agenti!registro_assenze_agente_id_fkey (
             id,
-            cognome,
-            nome
-          ),
-          tipi_assenza!registro_assenze_assenza_id_fkey (
-            codice
+            nome,
+            cognome
           )
         `)
-        .eq('data', formattedDate)
-        .eq('tipi_assenza.codice', 'CT')
-        .returns<AgenteCT[]>();
-
-      if (errorCT) {
-        throw new Error('Errore nel recupero degli agenti con assenza CT');
-      }
-
-      // Per gli agenti con assenza CT, recupera l'impianto e verifica se è sostituto
-      const impiantiPromises = agentiCT?.map(async (agenteCT) => {
-        // Verifica se l'agente è sostituto
-        const { data: sostitutoData } = await supabase
-          .from('registro_turni_ordinari')
-          .select('id')
-          .eq('sostituto_id', agenteCT.agente.id)
-          .eq('data', formattedDate)
-          .single();
-
-        // Se l'agente è sostituto, non lo includiamo
-        if (sostitutoData) {
-          return null;
-        }
-
-        const { data: turnoData } = await supabase
-          .from('registro_turni_ordinari')
-          .select(`
-            impianto:impianti!registro_turni_ordinari_impianto_id_fkey (
-              nome
-            )
-          `)
-          .eq('agente_id', agenteCT.agente.id)
-          .eq('data', formattedDate)
-          .single()
-          .returns<TurnoData>();
-
-        return {
-          id: agenteCT.agente.id,
-          cognome: agenteCT.agente.cognome,
-          nome: agenteCT.agente.nome,
-          impianto: turnoData?.impianto?.nome || 'Impianto non assegnato'
-        };
-      }) || [];
-
-      const impiantiCT = (await Promise.all(impiantiPromises)).filter(Boolean);
-
-      // Recupera gli agenti disponibili
-      const { data: agentiDisponibili, error: errorDisponibili } = await supabase
-        .from('registro_turni_ordinari')
-        .select(`
-          agente:agenti!registro_turni_ordinari_agente_id_fkey (
-            id,
-            cognome,
-            nome
-          ),
-          impianto:impianti!registro_turni_ordinari_impianto_id_fkey (
-            nome
-          )
-        `)
-        .eq('data', formattedDate)
+        .eq('data', format(selectedDate, 'yyyy-MM-dd'))
         .eq('is_disponibile', true)
-        .not('agente_id', 'is', null);
+        .eq('mansione_id', selectedMansioneId)
+        .returns<{
+          agente: {
+            id: string;
+            nome: string;
+            cognome: string;
+          };
+        }[]>();
 
-      if (errorDisponibili) {
-        throw new Error('Errore nel recupero degli agenti disponibili');
+      if (disponibiliAssenzeError) {
+        throw new Error(`Errore nel recupero degli agenti disponibili dalle assenze: ${disponibiliAssenzeError.message}`);
       }
 
-      // Elabora gli agenti disponibili, escludendo i sostituti
-      const agentiDisponibiliElaborati = await Promise.all(
-        (agentiDisponibili || [])
-          .filter(entry => entry.agente && entry.impianto?.nome)
-          .map(async entry => {
-            // Verifica se l'agente è sostituto
-            const { data: sostitutoData } = await supabase
-              .from('registro_turni_ordinari')
-              .select('id')
-              .eq('sostituto_id', entry.agente.id)
-              .eq('data', formattedDate)
-              .single();
+      // Recupera gli impianti per gli agenti dalle assenze
+      const impiantiAssenze = await Promise.all(
+        (agentiDisponibiliAssenzeData || []).map(async (assenza) => {
+          const { data: turno } = await supabase
+            .from('registro_turni_ordinari')
+            .select(`
+              impianto:impianti!registro_turni_ordinari_impianto_id_fkey (
+                nome
+              )
+            `)
+            .eq('agente_id', assenza.agente.id)
+            .eq('data', format(selectedDate, 'yyyy-MM-dd'))
+            .single();
 
-            // Se l'agente è sostituto, non lo includiamo
-            if (sostitutoData) {
-              return null;
-            }
-
-            return {
-              id: entry.agente.id,
-              cognome: entry.agente.cognome,
-              nome: entry.agente.nome,
-              impianto: entry.impianto.nome
-            };
-          })
+          return {
+            agente_id: assenza.agente.id,
+            impianto: turno?.impianto?.nome || 'N/A'
+          };
+        })
       );
 
       // Recupera gli agenti in RC
-      const { data: agentiRC, error: errorRC } = await supabase
+      const { data: agentiRCData, error: rcError } = await supabase
         .from('registro_turni_ordinari')
         .select(`
           agente:agenti!registro_turni_ordinari_agente_id_fkey (
             id,
-            cognome,
-            nome
+            nome,
+            cognome
           ),
+          sostituto_id,
           impianto:impianti!registro_turni_ordinari_impianto_id_fkey (
             nome
           )
         `)
-        .eq('data', formattedDate)
+        .eq('data', format(selectedDate, 'yyyy-MM-dd'))
         .eq('is_compensativo', true)
-        .not('agente_id', 'is', null);
+        .in('impianto_id', impianti.map(i => i.id))
+        .eq('mansione_id', selectedMansioneId)
+        .returns<{
+          agente: {
+            id: string;
+            nome: string;
+            cognome: string;
+          };
+          sostituto_id: string | null;
+          impianto: {
+            nome: string;
+          };
+        }[]>();
 
-      if (errorRC) {
-        throw new Error('Errore nel recupero degli agenti in RC');
+      if (rcError) {
+        throw new Error(`Errore nel recupero degli agenti in RC: ${rcError.message}`);
       }
 
-      // Elabora gli agenti in RC, escludendo i sostituti
-      const agentiRCElaborati = await Promise.all(
-        (agentiRC || [])
-          .filter(entry => entry.agente && entry.impianto?.nome)
-          .map(async entry => {
-            // Verifica se l'agente è sostituto
-            const { data: sostitutoData } = await supabase
-              .from('registro_turni_ordinari')
-              .select('id')
-              .eq('sostituto_id', entry.agente.id)
-              .eq('data', formattedDate)
-              .single();
+      // Recupera gli agenti in RC dalle assenze
+      const { data: agentiRCAssenzeData, error: rcAssenzeError } = await supabase
+        .from('registro_assenze')
+        .select(`
+          agente:agenti!registro_assenze_agente_id_fkey (
+            id,
+            nome,
+            cognome
+          )
+        `)
+        .eq('data', format(selectedDate, 'yyyy-MM-dd'))
+        .eq('is_compensativo', true)
+        .eq('mansione_id', selectedMansioneId)
+        .returns<{
+          agente: {
+            id: string;
+            nome: string;
+            cognome: string;
+          };
+        }[]>();
 
-            // Se l'agente è sostituto, non lo includiamo
-            if (sostitutoData) {
-              return null;
-            }
+      if (rcAssenzeError) {
+        throw new Error(`Errore nel recupero degli agenti in RC dalle assenze: ${rcAssenzeError.message}`);
+      }
 
-            return {
-              id: entry.agente.id,
-              cognome: entry.agente.cognome,
-              nome: entry.agente.nome,
-              impianto: entry.impianto.nome
-            };
-          })
+      // Recupera gli impianti per gli agenti in RC dalle assenze
+      const impiantiRCAssenze = await Promise.all(
+        (agentiRCAssenzeData || []).map(async (assenza) => {
+          const { data: turno } = await supabase
+            .from('registro_turni_ordinari')
+            .select(`
+              impianto:impianti!registro_turni_ordinari_impianto_id_fkey (
+                nome
+              )
+            `)
+            .eq('agente_id', assenza.agente.id)
+            .eq('data', format(selectedDate, 'yyyy-MM-dd'))
+            .single();
+
+          return {
+            agente_id: assenza.agente.id,
+            impianto: turno?.impianto?.nome || 'N/A'
+          };
+        })
       );
 
-      // Combina e ordina tutti gli agenti disponibili
-      const tuttiGliAgenti = [...impiantiCT, ...agentiDisponibiliElaborati.filter(Boolean)].sort((a, b) => {
+      // Combina e filtra i risultati
+      const disponibili = [
+        ...(agentiDisponibiliData?.filter(a => a.agente && !a.sostituto_id).map(a => ({
+          id: a.agente.id,
+          nome: a.agente.nome,
+          cognome: a.agente.cognome,
+          impianto: a.impianto.nome
+        })) || []),
+        ...(agentiDisponibiliAssenzeData?.map(a => ({
+          id: a.agente.id,
+          nome: a.agente.nome,
+          cognome: a.agente.cognome,
+          impianto: impiantiAssenze.find(i => i.agente_id === a.agente.id)?.impianto || 'N/A'
+        })) || [])
+      ].sort((a, b) => {
         if (a.cognome === b.cognome) {
           return a.nome.localeCompare(b.nome);
         }
         return a.cognome.localeCompare(b.cognome);
       });
 
-      // Ordina gli agenti in RC
-      const agentiRCOrdinati = agentiRCElaborati.filter(Boolean).sort((a, b) => {
+      const rc = [
+        ...(agentiRCData?.filter(a => a.agente && !a.sostituto_id).map(a => ({
+          id: a.agente.id,
+          nome: a.agente.nome,
+          cognome: a.agente.cognome,
+          impianto: a.impianto.nome
+        })) || []),
+        ...(agentiRCAssenzeData?.map(a => ({
+          id: a.agente.id,
+          nome: a.agente.nome,
+          cognome: a.agente.cognome,
+          impianto: impiantiRCAssenze.find(i => i.agente_id === a.agente.id)?.impianto || 'N/A'
+        })) || [])
+      ].sort((a, b) => {
         if (a.cognome === b.cognome) {
           return a.nome.localeCompare(b.nome);
         }
         return a.cognome.localeCompare(b.cognome);
       });
 
-      setAgentiDisponibili(tuttiGliAgenti);
-      setAgentiRC(agentiRCOrdinati);
+      setAgentiDisponibili(disponibili);
+      setAgentiRC(rc);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Errore nel caricamento degli agenti disponibili');
+      console.error('Errore nel caricamento degli agenti:', err);
+      setError(err instanceof Error ? err.message : 'Errore nel caricamento degli agenti');
     } finally {
       setIsLoading(false);
     }
   };
 
   if (isLoading) {
-    return (
-      <div className="p-4">
-        <div className="animate-pulse space-y-4">
-          <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-          <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-        </div>
-      </div>
-    );
+    return <div className="text-center text-gray-500">Caricamento...</div>;
   }
 
   if (error) {
-    return (
-      <div className="p-4 text-red-500">
-        {error}
-      </div>
-    );
+    return <div className="text-center text-red-500">{error}</div>;
   }
 
   return (
-    <div className="p-4">
-      <h2 className="text-xl font-semibold mb-4">Agenti disponibili</h2>
+    <div className="bg-white rounded-lg shadow p-4">
+      <h2 className="text-lg font-semibold mb-4">Agenti Disponibili</h2>
       <div className="space-y-2">
         {agentiDisponibili.map(agente => (
           <div key={agente.id} className="text-sm">
             {agente.cognome} {agente.nome.charAt(0)}. ({agente.impianto})
           </div>
         ))}
-        {agentiDisponibili.length === 0 && (
-          <div className="text-gray-500 text-sm">
-            Nessun agente disponibile per questa data
-          </div>
-        )}
       </div>
 
-      <h2 className="text-xl font-semibold mt-6 mb-4">Agenti in RC</h2>
+      <h2 className="text-lg font-semibold mt-6 mb-4">Agenti in RC</h2>
       <div className="space-y-2">
         {agentiRC.map(agente => (
           <div key={agente.id} className="text-sm">
             {agente.cognome} {agente.nome.charAt(0)}. ({agente.impianto})
           </div>
         ))}
-        {agentiRC.length === 0 && (
-          <div className="text-gray-500 text-sm">
-            Nessun agente in RC per questa data
-          </div>
-        )}
       </div>
     </div>
   );

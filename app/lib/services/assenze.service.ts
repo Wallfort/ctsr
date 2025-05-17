@@ -97,12 +97,23 @@ export const assenzeService = {
     // Recupera il turno
     const { data: turno, error: turnoError } = await supabase
       .from('registro_turni_ordinari')
-      .select('*')
+      .select('*, impianto:impianti!registro_turni_ordinari_impianto_id_fkey(mansione_id)')
       .eq('id', turnoId)
       .single();
 
     if (turnoError || !turno) {
       throw new Error('Turno non trovato');
+    }
+
+    // Recupera il tipo di assenza per ottenere i valori booleani
+    const { data: tipoAssenza, error: tipoAssenzaError } = await supabase
+      .from('tipi_assenza')
+      .select('*')
+      .eq('id', assenzaId)
+      .single();
+
+    if (tipoAssenzaError || !tipoAssenza) {
+      throw new Error('Tipo di assenza non trovato');
     }
 
     // Aggiorna il turno come assente
@@ -115,22 +126,63 @@ export const assenzeService = {
       throw new Error('Errore nell\'aggiornamento del turno');
     }
 
-    // Crea il record di assenza
-    const { error: assenzaError } = await supabase
+    // Verifica se esiste già un'assenza per questa data e agente
+    const { data: existingAssenza, error: existingAssenzaError } = await supabase
       .from('registro_assenze')
-      .insert({
-        data: turno.data,
-        assenza_id: assenzaId,
-        agente_id: turno.agente_id
-      });
+      .select('id')
+      .eq('agente_id', turno.agente_id)
+      .eq('data', turno.data)
+      .single();
 
-    if (assenzaError) {
-      // Se c'è un errore nell'inserimento dell'assenza, ripristina il turno
-      await supabase
-        .from('registro_turni_ordinari')
-        .update({ assente: false })
-        .eq('id', turnoId);
-      throw new Error('Errore nell\'inserimento dell\'assenza');
+    if (existingAssenzaError && existingAssenzaError.code !== 'PGRST116') {
+      throw new Error('Errore nella verifica dell\'assenza esistente');
+    }
+
+    // Se esiste già un'assenza, aggiornala invece di crearne una nuova
+    if (existingAssenza) {
+      const { error: updateAssenzaError } = await supabase
+        .from('registro_assenze')
+        .update({
+          assenza_id: assenzaId,
+          is_disponibile: tipoAssenza.is_disponibile,
+          is_compensativo: tipoAssenza.is_compensativo,
+          is_riposo: tipoAssenza.is_riposo,
+          possibile_dt: tipoAssenza.possibile_dt,
+          mansione_id: turno.impianto.mansione_id
+        })
+        .eq('id', existingAssenza.id);
+
+      if (updateAssenzaError) {
+        // Se c'è un errore nell'aggiornamento dell'assenza, ripristina il turno
+        await supabase
+          .from('registro_turni_ordinari')
+          .update({ assente: false })
+          .eq('id', turnoId);
+        throw new Error('Errore nell\'aggiornamento dell\'assenza');
+      }
+    } else {
+      // Crea un nuovo record di assenza
+      const { error: assenzaError } = await supabase
+        .from('registro_assenze')
+        .insert({
+          data: turno.data,
+          assenza_id: assenzaId,
+          agente_id: turno.agente_id,
+          is_disponibile: tipoAssenza.is_disponibile,
+          is_compensativo: tipoAssenza.is_compensativo,
+          is_riposo: tipoAssenza.is_riposo,
+          possibile_dt: tipoAssenza.possibile_dt,
+          mansione_id: turno.impianto.mansione_id
+        });
+
+      if (assenzaError) {
+        // Se c'è un errore nell'inserimento dell'assenza, ripristina il turno
+        await supabase
+          .from('registro_turni_ordinari')
+          .update({ assente: false })
+          .eq('id', turnoId);
+        throw new Error('Errore nell\'inserimento dell\'assenza');
+      }
     }
   },
 

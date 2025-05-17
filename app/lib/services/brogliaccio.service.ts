@@ -30,10 +30,26 @@ interface EntryWithDetails {
   prestazione_sostituto: string | null;
 }
 
-export async function getBrogliaccioEntries(data: Date): Promise<BrogliaccioEntry[]> {
+export async function getBrogliaccioEntries(data: Date, mansioneId: number): Promise<BrogliaccioEntry[]> {
   const supabase = createClient();
   const formattedDate = format(data, 'yyyy-MM-dd');
   
+  // Prima recuperiamo gli impianti associati alla mansione
+  const { data: impianti, error: impiantiError } = await supabase
+    .from('impianti')
+    .select('id')
+    .eq('mansione_id', mansioneId);
+
+  if (impiantiError) {
+    console.error('Errore nel recupero degli impianti:', impiantiError);
+    return [];
+  }
+
+  if (!impianti || impianti.length === 0) {
+    return [];
+  }
+
+  // Poi recuperiamo i turni solo per gli impianti della mansione
   const { data: entries, error } = await supabase
     .from('registro_turni_ordinari')
     .select(`
@@ -47,6 +63,7 @@ export async function getBrogliaccioEntries(data: Date): Promise<BrogliaccioEntr
     `)
     .eq('assente', true)
     .eq('data', formattedDate)
+    .in('impianto_id', impianti.map(i => i.id))
     .returns<{
       impianto_id: string;
       agente_id: string;
@@ -58,6 +75,7 @@ export async function getBrogliaccioEntries(data: Date): Promise<BrogliaccioEntr
     }[]>();
 
   if (error) {
+    console.error('Errore nel recupero dei turni:', error);
     return [];
   }
 
@@ -121,12 +139,6 @@ export async function getBrogliaccioEntries(data: Date): Promise<BrogliaccioEntr
     // Se non c'è agente (turno vacante), mostriamo solo i turni ordinari
     return entry.turno?.tipo === 'ordinario';
   });
-
-  // Verifichiamo anche se ci sono turni per quella data, indipendentemente da assente
-  const { data: allEntries } = await supabase
-    .from('registri_turni_ordinari')
-    .select('impianto, data, assente')
-    .eq('data', formattedDate);
 
   return filteredEntries.map(entry => ({
     impianto: entry.impianti.nome,
