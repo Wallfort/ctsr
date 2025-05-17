@@ -1,18 +1,38 @@
 import { createClient } from '@/lib/supabase/client';
+import type { Database } from '@/types/supabase';
+import { format } from 'date-fns';
 
 export type BrogliaccioEntry = {
   impianto: string;
+  impianto_id: string;
   agente_assente: string;
   turno: string;
   tipo_assenza: string;
+  tipo_turno: string;
+  is_non_ordinario: boolean;
+  prestazione_sostituto?: string;
 };
+
+interface EntryWithDetails {
+  impianti: {
+    nome: string;
+  };
+  impianto_id: string;
+  agente: {
+    nome: string;
+    cognome: string;
+  } | null;
+  turno: {
+    codice: string;
+    tipo: string;
+  } | null;
+  tipo_assenza: string;
+  prestazione_sostituto: string | null;
+}
 
 export async function getBrogliaccioEntries(data: Date): Promise<BrogliaccioEntry[]> {
   const supabase = createClient();
-  
-  // Log della data che stiamo cercando
-  const formattedDate = data.toISOString().split('T')[0];
-  console.log('Cercando turni per la data:', formattedDate);
+  const formattedDate = format(data, 'yyyy-MM-dd');
   
   const { data: entries, error } = await supabase
     .from('registro_turni_ordinari')
@@ -20,15 +40,24 @@ export async function getBrogliaccioEntries(data: Date): Promise<BrogliaccioEntr
       impianto_id,
       agente_id,
       turno_id,
+      prestazione_sostituto,
       impianti!inner (
         nome
       )
     `)
     .eq('assente', true)
-    .eq('data', formattedDate);
+    .eq('data', formattedDate)
+    .returns<{
+      impianto_id: string;
+      agente_id: string;
+      turno_id: number;
+      prestazione_sostituto: string | null;
+      impianti: {
+        nome: string;
+      };
+    }[]>();
 
   if (error) {
-    console.error('Error fetching brogliaccio entries:', error);
     return [];
   }
 
@@ -74,16 +103,15 @@ export async function getBrogliaccioEntries(data: Date): Promise<BrogliaccioEntr
         .single();
 
       return {
-        ...entry,
+        impianti: entry.impianti,
+        impianto_id: entry.impianto_id,
         agente,
         turno,
-        tipo_assenza: tipoAssenza
-      };
+        tipo_assenza: tipoAssenza,
+        prestazione_sostituto: entry.prestazione_sostituto
+      } as EntryWithDetails;
     })
   );
-
-  // Log dei risultati
-  console.log('Risultati query:', entriesWithDetails);
 
   // Filtriamo i risultati in base alla regola dei turni vacanti
   const filteredEntries = entriesWithDetails.filter(entry => {
@@ -99,15 +127,175 @@ export async function getBrogliaccioEntries(data: Date): Promise<BrogliaccioEntr
     .from('registri_turni_ordinari')
     .select('impianto, data, assente')
     .eq('data', formattedDate);
-  
-  console.log('Tutti i turni per questa data:', allEntries);
 
   return filteredEntries.map(entry => ({
     impianto: entry.impianti.nome,
+    impianto_id: entry.impianto_id,
     agente_assente: entry.agente 
       ? `${entry.agente.nome} ${entry.agente.cognome}`.trim()
       : 'Turno vacante',
     turno: entry.turno?.codice || '-',
-    tipo_assenza: entry.tipo_assenza
+    tipo_assenza: entry.tipo_assenza,
+    tipo_turno: entry.turno?.tipo || '-',
+    is_non_ordinario: entry.turno?.tipo !== 'ordinario',
+    prestazione_sostituto: entry.prestazione_sostituto || undefined
   }));
+}
+
+export async function getTurniByData(data: Date) {
+  const supabase = createClient();
+  const formattedDate = format(data, 'yyyy-MM-dd');
+
+  const { data: turni, error } = await supabase
+    .from('registro_turni_ordinari')
+    .select('impianto, data, assente')
+    .eq('data', formattedDate);
+
+  if (error) {
+    throw new Error('Errore nel recupero dei turni');
+  }
+
+  return turni;
+}
+
+export async function getImpianti() {
+  const supabase = createClient();
+
+  const { data: impianti, error } = await supabase
+    .from('impianti')
+    .select('*')
+    .order('nome');
+
+  if (error) {
+    throw new Error('Errore nel recupero degli impianti');
+  }
+
+  return impianti;
+}
+
+export async function getAgenti() {
+  const supabase = createClient();
+
+  const { data: agenti, error } = await supabase
+    .from('agenti')
+    .select('*')
+    .order('cognome');
+
+  if (error) {
+    throw new Error('Errore nel recupero degli agenti');
+  }
+
+  return agenti;
+}
+
+export async function getTurni() {
+  const supabase = createClient();
+
+  const { data: turni, error } = await supabase
+    .from('turni')
+    .select('*')
+    .order('id');
+
+  if (error) {
+    throw new Error('Errore nel recupero dei turni');
+  }
+
+  return turni;
+}
+
+export async function getTipiAssenza() {
+  const supabase = createClient();
+
+  const { data: tipiAssenza, error } = await supabase
+    .from('tipi_assenza')
+    .select('*')
+    .order('codice');
+
+  if (error) {
+    throw new Error('Errore nel recupero dei tipi assenza');
+  }
+
+  return tipiAssenza;
+}
+
+export async function saveTurno(turno: {
+  impianto_id: string;
+  agente_id: string;
+  turno_id: number;
+  data: Date;
+}) {
+  const supabase = createClient();
+  const formattedDate = format(turno.data, 'yyyy-MM-dd');
+
+  const { error } = await supabase
+    .from('registro_turni_ordinari')
+    .upsert({
+      impianto_id: turno.impianto_id,
+      agente_id: turno.agente_id,
+      turno_id: turno.turno_id,
+      data: formattedDate
+    });
+
+  if (error) {
+    throw new Error('Errore nel salvataggio del turno');
+  }
+}
+
+export async function deleteTurno(turno: {
+  impianto_id: string;
+  agente_id: string;
+  data: Date;
+}) {
+  const supabase = createClient();
+  const formattedDate = format(turno.data, 'yyyy-MM-dd');
+
+  const { error } = await supabase
+    .from('registro_turni_ordinari')
+    .delete()
+    .eq('impianto_id', turno.impianto_id)
+    .eq('agente_id', turno.agente_id)
+    .eq('data', formattedDate);
+
+  if (error) {
+    throw new Error('Errore nell\'eliminazione del turno');
+  }
+}
+
+export async function saveAssenza(assenza: {
+  agente_id: string;
+  assenza_id: number;
+  data: Date;
+}) {
+  const supabase = createClient();
+  const formattedDate = format(assenza.data, 'yyyy-MM-dd');
+
+  const { error } = await supabase
+    .from('registro_assenze')
+    .upsert({
+      agente_id: assenza.agente_id,
+      assenza_id: assenza.assenza_id,
+      data: formattedDate
+    });
+
+  if (error) {
+    throw new Error('Errore nel salvataggio dell\'assenza');
+  }
+}
+
+export async function deleteAssenza(assenza: {
+  agente_id: string;
+  data: Date;
+}) {
+  const supabase = createClient();
+  const formattedDate = format(assenza.data, 'yyyy-MM-dd');
+
+  const { error } = await supabase
+    .from('registro_assenze')
+    .delete()
+    .eq('agente_id', assenza.agente_id)
+    .eq('data', formattedDate);
+
+  if (error) {
+    throw new Error('Errore nell\'eliminazione dell\'assenza');
+  }
 } 

@@ -1,8 +1,9 @@
 import { createClient } from '@/lib/supabase/client';
 import { addDays, differenceInDays } from 'date-fns';
 import type { Database } from '@/types/supabase';
+import { format } from 'date-fns';
 
-type PianificazioneInput = {
+export type PianificazioneInput = {
   dataInizio: Date;
   dataFine: Date;
   selettore: 'stazioni' | 'impianti';
@@ -10,7 +11,7 @@ type PianificazioneInput = {
 };
 
 export class PianificazioneService {
-  private supabase = createClient<Database>();
+  private supabase = createClient();
 
   async pianifica(input: PianificazioneInput) {
     const { dataInizio, dataFine, selettore, elementoId } = input;
@@ -71,6 +72,28 @@ export class PianificazioneService {
         const turnoIndex = (giorniDallInizio + posizione.sequenza - 1) % turniSequenza.length;
         const turnoId = turniSequenza[turnoIndex].turno_id;
 
+        // Recupera il tipo del turno
+        const { data: turno, error: turnoError } = await this.supabase
+          .from('turni')
+          .select('tipo')
+          .eq('id', turnoId)
+          .single();
+
+        if (turnoError || !turno) {
+          throw new Error(`Errore nel recupero del tipo del turno: ${turnoError?.message}`);
+        }
+
+        // Recupera il tipo dell'impianto
+        const { data: impianto, error: impiantoError } = await this.supabase
+          .from('impianti')
+          .select('mansione_id')
+          .eq('id', elementoId)
+          .single();
+
+        if (impiantoError || !impianto) {
+          throw new Error(`Errore nel recupero del tipo dell'impianto: ${impiantoError?.message}`);
+        }
+
         // Crea il record nel registro turni ordinari
         const { error: insertError } = await this.supabase
           .from('registro_turni_ordinari')
@@ -81,7 +104,11 @@ export class PianificazioneService {
             impianto_id: elementoId,
             posizione_id: posizione.id,
             assente: posizione.agente_id === null, // Imposta assente a true se agente_id è null
-            soppresso: false // Imposta soppresso a false di default
+            soppresso: false, // Imposta soppresso a false di default
+            is_disponibile: turno.tipo === 'disponibilita',
+            is_compensativo: turno.tipo === 'compensativo',
+            is_riposo: turno.tipo === 'riposo',
+            mansione_id: impianto.mansione_id
           });
 
         if (insertError) {

@@ -17,6 +17,7 @@ type RegistroTurno = Database['public']['Tables']['registro_turni_ordinari']['Ro
   agente: Database['public']['Tables']['agenti']['Row'] & {
     registro_assenze: Array<{
       id: number;
+      data: string;
       tipi_assenza: {
         id: number;
         codice: string;
@@ -67,8 +68,6 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
         return mansione?.nome.toLowerCase().includes(selectedSection.toLowerCase());
       });
 
-      setImpianti(impiantiFiltrati);
-
       // Recupera i registri per il mese selezionato
       const dataInizio = startOfMonth(mese);
       const dataFine = endOfMonth(mese);
@@ -82,6 +81,7 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
             *,
             registro_assenze (
               id,
+              data,
               tipi_assenza (
                 id,
                 codice,
@@ -113,6 +113,12 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
         registriOrganizzati[registro.impianto_id][dataLocale].push(registro as RegistroTurno);
       });
 
+      // Filtra gli impianti per mostrare solo quelli che hanno turni nel registro
+      const impiantiConTurni = impiantiFiltrati.filter(impianto => 
+        Object.keys(registriOrganizzati[impianto.id] || {}).length > 0
+      );
+
+      setImpianti(impiantiConTurni);
       setRegistri(registriOrganizzati);
     } catch (err) {
       console.error('Errore nel caricamento dei dati:', err);
@@ -222,7 +228,13 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {Array.from(turniPerPosizione.entries()).map(([posizioneId, turni]) => {
+                  {Array.from(turniPerPosizione.entries())
+                    .sort(([_, turniA], [__, turniB]) => {
+                      const posizioneA = turniA[0]?.posizione?.numero || 0;
+                      const posizioneB = turniB[0]?.posizione?.numero || 0;
+                      return posizioneA - posizioneB;
+                    })
+                    .map(([posizioneId, turni]) => {
                     const agente = turni[0]?.agente;
                     const posizione = turni[0]?.posizione;
                     
@@ -248,7 +260,9 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
                                 <div className="flex flex-col items-center gap-1">
                                   {turno.assente && turno.agente_id && !turno.sostituto_id && turno.agente?.registro_assenze && turno.agente.registro_assenze.length > 0 && (
                                     <div className="text-lg font-bold text-red-600 bg-white px-2 py-1 rounded shadow-md border border-red-200">
-                                      {turno.agente.registro_assenze[0].tipi_assenza.codice}
+                                      {turno.agente.registro_assenze.find(
+                                        assenza => assenza.data === turno.data
+                                      )?.tipi_assenza.codice}
                                     </div>
                                   )}
                                   <button
@@ -286,7 +300,9 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveAssenza}
         onRemove={handleRemoveAssenza}
-        currentAssenzaId={selectedTurno?.agente?.registro_assenze?.[0]?.tipi_assenza.id}
+        currentAssenzaId={selectedTurno?.agente?.registro_assenze?.find(
+          assenza => assenza.data === selectedTurno.data
+        )?.tipi_assenza.id}
       />
     </div>
   );
