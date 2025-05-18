@@ -20,7 +20,15 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
   const [loading, setLoading] = useState(false);
   const [confirmedRows, setConfirmedRows] = useState<Set<number>>(new Set());
   const [selectedPrestazione, setSelectedPrestazione] = useState<number | null>(null);
+  const [selectedSostituto, setSelectedSostituto] = useState<number | null>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+  const [agentiDisponibili, setAgentiDisponibili] = useState<Array<{
+    id: string;
+    nome: string;
+    cognome: string;
+    impianto: string;
+  }>>([]);
+  const [isLoadingAgenti, setIsLoadingAgenti] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const getPrestazioneCode = (prestazione: string | undefined | null) => {
@@ -106,13 +114,46 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
       const supabase = createClient();
       const formattedDate = format(selectedDate, 'yyyy-MM-dd');
 
-      const { error } = await supabase
+      // Prima verifichiamo che il record esista usando l'ID del turno
+      const { data: existingRecord, error: checkError } = await supabase
         .from('registro_turni_ordinari')
-        .update({ prestazione_sostituto: prestazione })
+        .select('*')
         .eq('impianto_id', entry.impianto_id)
-        .eq('data', formattedDate);
+        .eq('data', formattedDate)
+        .eq('turno_id', entry.turno_id)
+        .single();
 
-      if (error) throw error;
+      if (checkError) {
+        console.error('Errore nel controllo del record:', checkError);
+        throw checkError;
+      }
+
+      if (!existingRecord) {
+        console.error('Record non trovato:', {
+          impianto_id: entry.impianto_id,
+          data: formattedDate,
+          turno_id: entry.turno_id
+        });
+        throw new Error('Record non trovato');
+      }
+
+      console.log('Record trovato:', existingRecord);
+
+      // Aggiorniamo il record specifico
+      const { data, error } = await supabase
+        .from('registro_turni_ordinari')
+        .update({ 
+          prestazione_sostituto: prestazione,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingRecord.id);
+
+      if (error) {
+        console.error('Errore Supabase nell\'aggiornamento:', error);
+        throw error;
+      }
+
+      console.log('Risultato aggiornamento:', data);
 
       // Aggiorna l'entry locale
       const updatedEntries = [...entries];
@@ -121,10 +162,224 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
         prestazione_sostituto: prestazione || undefined
       };
       setEntries(updatedEntries);
+
+      // Ricarica i dati per assicurarsi che tutto sia sincronizzato
+      if (selectedMansioneId) {
+        const newData = await getBrogliaccioEntries(selectedDate, selectedMansioneId);
+        setEntries(newData);
+      }
+
     } catch (error) {
-      console.error('Errore nell\'aggiornamento della prestazione:', error);
+      console.error('Errore completo:', error);
+      alert('Si è verificato un errore durante l\'aggiornamento della prestazione. Riprova più tardi.');
     } finally {
       setSelectedPrestazione(null);
+    }
+  };
+
+  const handleSostitutoClick = async (index: number, event: React.MouseEvent<HTMLButtonElement>) => {
+    const entry = entries[index];
+    if (!entry || entry.prestazione_sostituto !== 'disponibilita') return;
+
+    const button = event.currentTarget;
+    const rect = button.getBoundingClientRect();
+    
+    setMenuPosition({
+      top: rect.top - 160,
+      left: rect.left
+    });
+    
+    setSelectedSostituto(prev => prev === index ? null : index);
+    await loadAgentiDisponibili(index);
+  };
+
+  const loadAgentiDisponibili = async (index: number) => {
+    const entry = entries[index];
+    if (!entry || !selectedMansioneId) return;
+
+    try {
+      setIsLoadingAgenti(true);
+      const supabase = createClient();
+      const formattedDate = format(selectedDate, 'yyyy-MM-dd');
+
+      // Recupera gli impianti associati alla mansione selezionata
+      const { data: impianti, error: impiantiError } = await supabase
+        .from('impianti')
+        .select('id')
+        .eq('mansione_id', selectedMansioneId)
+        .eq('stato', 'attivo');
+
+      if (impiantiError) throw impiantiError;
+
+      if (!impianti || impianti.length === 0) {
+        setAgentiDisponibili([]);
+        return;
+      }
+
+      // Recupera gli agenti disponibili dai turni
+      const { data: agentiDisponibiliData, error: disponibiliError } = await supabase
+        .from('registro_turni_ordinari')
+        .select(`
+          agente:agenti!registro_turni_ordinari_agente_id_fkey (
+            id,
+            nome,
+            cognome
+          ),
+          sostituto_id,
+          impianto:impianti!registro_turni_ordinari_impianto_id_fkey (
+            nome
+          )
+        `)
+        .eq('data', formattedDate)
+        .eq('is_disponibile', true)
+        .in('impianto_id', impianti.map(i => i.id))
+        .eq('mansione_id', selectedMansioneId);
+
+      if (disponibiliError) throw disponibiliError;
+
+      // Recupera gli agenti disponibili dalle assenze
+      const { data: agentiDisponibiliAssenzeData, error: disponibiliAssenzeError } = await supabase
+        .from('registro_assenze')
+        .select(`
+          agente:agenti!registro_assenze_agente_id_fkey (
+            id,
+            nome,
+            cognome
+          )
+        `)
+        .eq('data', formattedDate)
+        .eq('is_disponibile', true)
+        .eq('mansione_id', selectedMansioneId);
+
+      if (disponibiliAssenzeError) throw disponibiliAssenzeError;
+
+      // Recupera gli impianti per gli agenti dalle assenze
+      const impiantiAssenze = await Promise.all(
+        (agentiDisponibiliAssenzeData || []).map(async (assenza) => {
+          const { data: turno } = await supabase
+            .from('registro_turni_ordinari')
+            .select(`
+              impianto:impianti!registro_turni_ordinari_impianto_id_fkey (
+                nome
+              )
+            `)
+            .eq('agente_id', assenza.agente.id)
+            .eq('data', formattedDate)
+            .single();
+
+          return {
+            agente_id: assenza.agente.id,
+            impianto: turno?.impianto?.nome || 'N/A'
+          };
+        })
+      );
+
+      // Combina e filtra i risultati
+      const disponibili = [
+        ...(agentiDisponibiliData?.filter(a => a.agente && !a.sostituto_id).map(a => ({
+          id: a.agente.id,
+          nome: a.agente.nome,
+          cognome: a.agente.cognome,
+          impianto: a.impianto.nome
+        })) || []),
+        ...(agentiDisponibiliAssenzeData?.map(a => ({
+          id: a.agente.id,
+          nome: a.agente.nome,
+          cognome: a.agente.cognome,
+          impianto: impiantiAssenze.find(i => i.agente_id === a.agente.id)?.impianto || 'N/A'
+        })) || [])
+      ].sort((a, b) => {
+        if (a.cognome === b.cognome) {
+          return a.nome.localeCompare(b.nome);
+        }
+        return a.cognome.localeCompare(b.cognome);
+      });
+
+      setAgentiDisponibili(disponibili);
+    } catch (error) {
+      console.error('Errore nel caricamento degli agenti disponibili:', error);
+    } finally {
+      setIsLoadingAgenti(false);
+    }
+  };
+
+  const handleSostitutoSelect = async (sostitutoId: string | null) => {
+    if (selectedSostituto === null) return;
+
+    const entry = entries[selectedSostituto];
+    if (!entry) return;
+
+    try {
+      const supabase = createClient();
+      const formattedDate = format(selectedDate, 'yyyy-MM-dd');
+
+      console.log('Aggiornamento sostituto:', {
+        impianto_id: entry.impianto_id,
+        data: formattedDate,
+        sostituto_id: sostitutoId,
+        turno_id: entry.turno_id
+      });
+
+      // Prima verifichiamo che il record esista usando l'ID del turno
+      const { data: existingRecord, error: checkError } = await supabase
+        .from('registro_turni_ordinari')
+        .select('*')
+        .eq('impianto_id', entry.impianto_id)
+        .eq('data', formattedDate)
+        .eq('turno_id', entry.turno_id)
+        .single();
+
+      if (checkError) {
+        console.error('Errore nel controllo del record:', checkError);
+        throw checkError;
+      }
+
+      if (!existingRecord) {
+        console.error('Record non trovato:', {
+          impianto_id: entry.impianto_id,
+          data: formattedDate,
+          turno_id: entry.turno_id
+        });
+        throw new Error('Record non trovato');
+      }
+
+      console.log('Record trovato:', existingRecord);
+
+      // Aggiorniamo il record specifico
+      const { data, error } = await supabase
+        .from('registro_turni_ordinari')
+        .update({ 
+          sostituto_id: sostitutoId,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingRecord.id);
+
+      if (error) {
+        console.error('Errore Supabase nell\'aggiornamento:', error);
+        throw error;
+      }
+
+      console.log('Risultato aggiornamento:', data);
+
+      // Aggiorna l'entry locale
+      const updatedEntries = [...entries];
+      updatedEntries[selectedSostituto] = {
+        ...entry,
+        sostituto_id: sostitutoId || undefined
+      };
+      setEntries(updatedEntries);
+
+      // Ricarica i dati per assicurarsi che tutto sia sincronizzato
+      if (selectedMansioneId) {
+        const newData = await getBrogliaccioEntries(selectedDate, selectedMansioneId);
+        setEntries(newData);
+      }
+
+    } catch (error) {
+      console.error('Errore completo:', error);
+      alert('Si è verificato un errore durante l\'aggiornamento del sostituto. Riprova più tardi.');
+    } finally {
+      setSelectedSostituto(null);
     }
   };
 
@@ -278,6 +533,55 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
                     <div className="absolute inset-0 flex items-center">
                       <div className="w-full h-0.5 bg-gray-400"></div>
                     </div>
+                  </div>
+                ) : entry.prestazione_sostituto === 'disponibilita' ? (
+                  <div className="relative">
+                    <button
+                      onClick={(e) => handleSostitutoClick(globalIndex, e)}
+                      className="w-full text-left px-2 py-1 rounded bg-blue-100 text-blue-800"
+                    >
+                      {entry.sostituto || 'Seleziona'}
+                    </button>
+                    {selectedSostituto === globalIndex && (
+                      <div 
+                        ref={menuRef} 
+                        className="fixed bg-white rounded-md shadow-lg border border-gray-200 z-50 max-h-60 overflow-y-auto min-w-[300px]"
+                        style={{
+                          top: `${menuPosition.top}px`,
+                          left: `${menuPosition.left}px`
+                        }}
+                      >
+                        {isLoadingAgenti ? (
+                          <div className="px-4 py-2 text-sm text-gray-500">
+                            Caricamento...
+                          </div>
+                        ) : agentiDisponibili.length === 0 ? (
+                          <div className="px-4 py-2 text-sm text-gray-500">
+                            Nessun agente disponibile
+                          </div>
+                        ) : (
+                          <div className="py-1">
+                            {entry.sostituto_id && (
+                              <button
+                                onClick={() => handleSostitutoSelect(null)}
+                                className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 border-b border-gray-100"
+                              >
+                                Rimuovi
+                              </button>
+                            )}
+                            {agentiDisponibili.map(agente => (
+                              <button
+                                key={agente.id}
+                                onClick={() => handleSostitutoSelect(agente.id)}
+                                className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 whitespace-nowrap"
+                              >
+                                {agente.cognome} {agente.nome} ({agente.impianto})
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : '-'}
               </td>

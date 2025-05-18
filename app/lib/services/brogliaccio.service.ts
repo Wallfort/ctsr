@@ -7,10 +7,13 @@ export type BrogliaccioEntry = {
   impianto_id: string;
   agente_assente: string;
   turno: string;
+  turno_id: number;
   tipo_assenza: string;
   tipo_turno: string;
   is_non_ordinario: boolean;
   prestazione_sostituto?: string;
+  sostituto_id?: string;
+  sostituto?: string;
 };
 
 interface EntryWithDetails {
@@ -23,11 +26,17 @@ interface EntryWithDetails {
     cognome: string;
   } | null;
   turno: {
+    id: number;
     codice: string;
     tipo: string;
   } | null;
   tipo_assenza: string;
   prestazione_sostituto: string | null;
+  sostituto_id: string | null;
+  sostituto: {
+    nome: string;
+    cognome: string;
+  } | null;
 }
 
 export async function getBrogliaccioEntries(data: Date, mansioneId: number): Promise<BrogliaccioEntry[]> {
@@ -57,8 +66,13 @@ export async function getBrogliaccioEntries(data: Date, mansioneId: number): Pro
       agente_id,
       turno_id,
       prestazione_sostituto,
+      sostituto_id,
       impianti!inner (
         nome
+      ),
+      sostituto:agenti!registro_turni_ordinari_sostituto_id_fkey (
+        nome,
+        cognome
       )
     `)
     .eq('assente', true)
@@ -69,9 +83,14 @@ export async function getBrogliaccioEntries(data: Date, mansioneId: number): Pro
       agente_id: string;
       turno_id: number;
       prestazione_sostituto: string | null;
+      sostituto_id: string | null;
       impianti: {
         nome: string;
       };
+      sostituto: {
+        nome: string;
+        cognome: string;
+      } | null;
     }[]>();
 
   if (error) {
@@ -116,7 +135,7 @@ export async function getBrogliaccioEntries(data: Date, mansioneId: number): Pro
       // Recupero dettagli turno
       const { data: turno } = await supabase
         .from('turni')
-        .select('codice, tipo')
+        .select('id, codice, tipo')
         .eq('id', entry.turno_id)
         .single();
 
@@ -126,7 +145,9 @@ export async function getBrogliaccioEntries(data: Date, mansioneId: number): Pro
         agente,
         turno,
         tipo_assenza: tipoAssenza,
-        prestazione_sostituto: entry.prestazione_sostituto
+        prestazione_sostituto: entry.prestazione_sostituto,
+        sostituto_id: entry.sostituto_id,
+        sostituto: entry.sostituto
       } as EntryWithDetails;
     })
   );
@@ -147,10 +168,13 @@ export async function getBrogliaccioEntries(data: Date, mansioneId: number): Pro
       ? `${entry.agente.nome} ${entry.agente.cognome}`.trim()
       : 'Turno vacante',
     turno: entry.turno?.codice || '-',
+    turno_id: entry.turno?.id || 0,
     tipo_assenza: entry.tipo_assenza,
     tipo_turno: entry.turno?.tipo || '-',
     is_non_ordinario: entry.turno?.tipo !== 'ordinario',
-    prestazione_sostituto: entry.prestazione_sostituto || undefined
+    prestazione_sostituto: entry.prestazione_sostituto || undefined,
+    sostituto_id: entry.sostituto_id || undefined,
+    sostituto: entry.sostituto ? `${entry.sostituto.nome} ${entry.sostituto.cognome}`.trim() : undefined
   }));
 }
 
