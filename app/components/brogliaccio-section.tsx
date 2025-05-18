@@ -144,6 +144,7 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
         .from('registro_turni_ordinari')
         .update({ 
           prestazione_sostituto: prestazione,
+          sostituto_id: null, // Rimuoviamo il sostituto quando cambiamo la prestazione
           updated_at: new Date().toISOString()
         })
         .eq('id', existingRecord.id);
@@ -159,7 +160,9 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
       const updatedEntries = [...entries];
       updatedEntries[selectedPrestazione] = {
         ...entry,
-        prestazione_sostituto: prestazione || undefined
+        prestazione_sostituto: prestazione || undefined,
+        sostituto_id: undefined,
+        sostituto: undefined
       };
       setEntries(updatedEntries);
 
@@ -185,7 +188,7 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
     const rect = button.getBoundingClientRect();
     
     setMenuPosition({
-      top: rect.top - 160,
+      top: rect.top - 120, // Ridotto da 160 a 120 per avvicinare il menu
       left: rect.left
     });
     
@@ -237,6 +240,18 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
 
       if (disponibiliError) throw disponibiliError;
 
+      // Recupera gli agenti già utilizzati come sostituti
+      const { data: sostitutiData, error: sostitutiError } = await supabase
+        .from('registro_turni_ordinari')
+        .select('sostituto_id')
+        .eq('data', formattedDate)
+        .not('sostituto_id', 'is', null);
+
+      if (sostitutiError) throw sostitutiError;
+
+      // Crea un Set con gli ID degli agenti già utilizzati come sostituti
+      const sostitutiIds = new Set(sostitutiData?.map(s => s.sostituto_id) || []);
+
       // Recupera gli agenti disponibili dalle assenze
       const { data: agentiDisponibiliAssenzeData, error: disponibiliAssenzeError } = await supabase
         .from('registro_assenze')
@@ -276,13 +291,13 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
 
       // Combina e filtra i risultati
       const disponibili = [
-        ...(agentiDisponibiliData?.filter(a => a.agente && !a.sostituto_id).map(a => ({
+        ...(agentiDisponibiliData?.filter(a => a.agente && !a.sostituto_id && !sostitutiIds.has(a.agente.id)).map(a => ({
           id: a.agente.id,
           nome: a.agente.nome,
           cognome: a.agente.cognome,
           impianto: a.impianto.nome
         })) || []),
-        ...(agentiDisponibiliAssenzeData?.map(a => ({
+        ...(agentiDisponibiliAssenzeData?.filter(a => !sostitutiIds.has(a.agente.id)).map(a => ({
           id: a.agente.id,
           nome: a.agente.nome,
           cognome: a.agente.cognome,
@@ -538,7 +553,11 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
                   <div className="relative">
                     <button
                       onClick={(e) => handleSostitutoClick(globalIndex, e)}
-                      className="w-full text-left px-2 py-1 rounded bg-blue-100 text-blue-800"
+                      className={`w-full text-left px-2 py-1 rounded ${
+                        entry.sostituto_id
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'text-gray-400 hover:bg-gray-100'
+                      }`}
                     >
                       {entry.sostituto || 'Seleziona'}
                     </button>
@@ -555,10 +574,6 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
                           <div className="px-4 py-2 text-sm text-gray-500">
                             Caricamento...
                           </div>
-                        ) : agentiDisponibili.length === 0 ? (
-                          <div className="px-4 py-2 text-sm text-gray-500">
-                            Nessun agente disponibile
-                          </div>
                         ) : (
                           <div className="py-1">
                             {entry.sostituto_id && (
@@ -569,15 +584,21 @@ export function BrogliaccioSection({ selectedDate, onDateChange }: BrogliaccioSe
                                 Rimuovi
                               </button>
                             )}
-                            {agentiDisponibili.map(agente => (
-                              <button
-                                key={agente.id}
-                                onClick={() => handleSostitutoSelect(agente.id)}
-                                className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 whitespace-nowrap"
-                              >
-                                {agente.cognome} {agente.nome} ({agente.impianto})
-                              </button>
-                            ))}
+                            {agentiDisponibili.length === 0 ? (
+                              <div className="px-4 py-2 text-sm text-gray-500">
+                                Nessun agente disponibile
+                              </div>
+                            ) : (
+                              agentiDisponibili.map(agente => (
+                                <button
+                                  key={agente.id}
+                                  onClick={() => handleSostitutoSelect(agente.id)}
+                                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 whitespace-nowrap"
+                                >
+                                  {agente.cognome} {agente.nome} ({agente.impianto})
+                                </button>
+                              ))
+                            )}
                           </div>
                         )}
                       </div>
