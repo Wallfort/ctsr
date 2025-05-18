@@ -29,6 +29,24 @@ type RegistroTurno = Database['public']['Tables']['registro_turni_ordinari']['Ro
   assente: boolean;
   agente_id: string;
   sostituto_id: string | null;
+  is_sostituto: boolean;
+  sostituzione_info?: {
+    impianto_id: string;
+    turno_codice: string;
+    is_straordinario: boolean;
+  };
+};
+
+type TurnoResponse = {
+  codice: string;
+};
+
+type SostitutoRecord = {
+  sostituto_id: string;
+  data: string;
+  impianto_id: string;
+  is_straordinario: boolean;
+  turno: TurnoResponse;
 };
 
 type RegistriGridProps = {
@@ -71,6 +89,40 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
       const dataInizio = startOfMonth(mese);
       const dataFine = endOfMonth(mese);
 
+      // Prima recuperiamo tutti i turni dove un agente è stato utilizzato come sostituto
+      const { data: sostitutiData, error: sostitutiError } = await supabase
+        .from('registro_turni_ordinari')
+        .select(`
+          sostituto_id,
+          data,
+          impianto_id,
+          is_straordinario,
+          turno:turni!inner (
+            codice
+          )
+        `)
+        .gte('data', dataInizio.toISOString())
+        .lte('data', dataFine.toISOString())
+        .not('sostituto_id', 'is', null)
+        .returns<SostitutoRecord[]>();
+
+      if (sostitutiError) {
+        throw new Error(`Errore nel recupero dei sostituti: ${sostitutiError.message}`);
+      }
+
+      // Creiamo una mappa dei sostituti per data
+      const sostitutiPerData = sostitutiData.reduce((acc, record) => {
+        if (!acc[record.data]) {
+          acc[record.data] = new Map();
+        }
+        acc[record.data].set(record.sostituto_id, {
+          impianto_id: record.impianto_id,
+          turno_codice: record.turno.codice,
+          is_straordinario: record.is_straordinario
+        });
+        return acc;
+      }, {} as Record<string, Map<string, { impianto_id: string; turno_codice: string; is_straordinario: boolean }>>);
+
       const { data: registriData, error: registriError } = await supabase
         .from('registro_turni_ordinari')
         .select(`
@@ -109,7 +161,14 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
         if (!registriOrganizzati[registro.impianto_id][dataLocale]) {
           registriOrganizzati[registro.impianto_id][dataLocale] = [];
         }
-        registriOrganizzati[registro.impianto_id][dataLocale].push(registro as RegistroTurno);
+
+        // Aggiungiamo l'informazione se l'agente è stato utilizzato come sostituto
+        const sostituzioneInfo = sostitutiPerData[registro.data]?.get(registro.agente_id);
+        registriOrganizzati[registro.impianto_id][dataLocale].push({
+          ...registro as RegistroTurno,
+          is_sostituto: !!sostituzioneInfo,
+          sostituzione_info: sostituzioneInfo
+        });
       });
 
       // Filtra gli impianti per mostrare solo quelli che hanno turni nel registro
@@ -261,6 +320,17 @@ export function RegistriGrid({ mese }: RegistriGridProps) {
                             <td key={giorno.toISOString()} className={`border p-2 text-center ${isFestivo ? 'bg-red-50' : ''}`}>
                               {turno ? (
                                 <div className="flex flex-col items-center gap-1">
+                                  {turno.is_sostituto && turno.sostituzione_info && (
+                                    turno.sostituzione_info.impianto_id === turno.impianto_id ? (
+                                      <div className={`text-lg font-bold text-blue-600 bg-white px-2 py-1 ${turno.sostituzione_info.is_straordinario ? 'rounded-full ring-2 ring-red-500' : 'rounded shadow-md border border-blue-200'}`}>
+                                        {turno.sostituzione_info.turno_codice}
+                                      </div>
+                                    ) : (
+                                      <div className={`text-lg font-bold text-blue-600 bg-white px-2 py-1 ${turno.sostituzione_info.is_straordinario ? 'rounded-full ring-2 ring-red-500' : 'rounded shadow-md border border-blue-200'}`}>
+                                        T<sup className="text-sm">{turno.sostituzione_info.turno_codice}</sup>
+                                      </div>
+                                    )
+                                  )}
                                   {turno.assente && turno.agente_id && !turno.sostituto_id && turno.agente?.registro_assenze && turno.agente.registro_assenze.length > 0 && (
                                     <div className="text-lg font-bold text-red-600 bg-white px-2 py-1 rounded shadow-md border border-red-200">
                                       {turno.agente.registro_assenze.find(
